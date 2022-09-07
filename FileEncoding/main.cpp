@@ -32,10 +32,16 @@ void utf16_to_utf8(const wchar_t* str, const int& n_wsize, char*& utf8, int& n_s
     ::WideCharToMultiByte(CP_UTF8, 0, &str[0], n_wsize, &utf8[0], n_size, NULL, NULL);
 }
 
-//@brief  : get encoding use byte bom
-//@return : ANSI=0 | UTF-8=1 | UTF-16LE=2 | UTF-16BE=3 | UTF-32LE=4 | UTF-32BE=5
+/***************************************************************************
+* @Brief  : Get encoding use bom bytes                                      
+* @Author : thuong.nv   - [Date] :09/07/2022                                
+* @Return : ANSI=0 | UTF-8=1 | UTF-16LE=2 | UTF-16BE=3 | UTF-32LE=4 | UTF-32BE=5
+* @Note   : N/A                                                             
+***************************************************************************/
 int get_encoding_bytes_bom(unsigned char* _bytes, const int _size)
 {
+    if (!_bytes || !_size) return 0;
+
     unsigned char utf8[]    = { 0xEF, 0xBB, 0xBF      };
     unsigned char utf16le[] = { 0xFF, 0xFE            };
     unsigned char utf16be[] = { 0xFE, 0xFF            };
@@ -74,44 +80,6 @@ int get_encoding_bytes_bom(unsigned char* _bytes, const int _size)
 
     return 0; // ansi
 }
-
-//@brief  : get encoding multiple bytes
-//@ref    : https://unicodebook.readthedocs.io/guess_encoding.html
-//@return : 0: utf8 | 1 != utf8
-size_t get_file_size(FILE*& file)
-{
-    fseek(file, 0L, SEEK_END);
-    size_t n_bytes_size = static_cast<size_t>(ftell(file));
-    fseek(file, 0L, SEEK_SET);
-
-    return n_bytes_size;
-}
-
-//@brief  : get encoding use byte bom
-//@return : ANSI=0 | UTF-8=1 | UTF-16LE=2 | UTF-16BE=3 | UTF-32LE=4 | UTF-32BE=5
-size_t read_data_file(const char* path, char** buff)
-{
-    // reset data
-    size_t nbyte = 0; *buff = NULL;
-
-    FILE* file = NULL;
-    fopen_s(&file, path, "r");
-
-    if (!file) return 0;
-
-    // read length bytes file size
-    fseek(file, 0L, SEEK_END);
-    nbyte = static_cast<size_t>(ftell(file));
-    fseek(file, 0L, SEEK_SET);
-
-    // read content bytes file
-    *buff = new char[nbyte + 1];
-    buff[nbyte] = '\0';
-    fread_s(buff, nbyte, sizeof(char), nbyte, file);
-
-    return nbyte;
-}
-
 
 int xmlCheckUTF8(const unsigned char *utf)
 {
@@ -228,11 +196,16 @@ bool is_utf8(const char* string)
     return true;
 }
 
-//@brief  : get encoding multiple bytes
-//@ref    : https://unicodebook.readthedocs.io/guess_encoding.html
-//@return : 0: utf8 | 1 != utf8
+/***************************************************************************
+* @Brief : Get encoding multiple bytes                                      
+* @Author: thuong.nv - [Date] :09/07/2022                                   
+* @Return: 1 = utf8 | 0 = not utf8                                          
+* @Note  : https://unicodebook.readthedocs.io/guess_encoding.html           
+***************************************************************************/
 int is_utf8(const char* _bytes, size_t _size)
 {
+    if (!_bytes) return 1;
+
     const unsigned char *str = (unsigned char*)_bytes;
     const unsigned char *end = str + _size;
     unsigned char byte;
@@ -311,7 +284,13 @@ int is_utf8(const char* _bytes, size_t _size)
     return 1;
 }
 
-bool save_file(const char* fpath, const char* stream, const int& nsize)
+/***************************************************************************
+* @Brief : save file use encoding file                                      
+* @Author: thuong.nv - [Date] :09/07/2022                                   
+* @Return: true/false                                                       
+* @Note  : N/A                                                              
+***************************************************************************/
+bool save_file(const char* fpath, void* stream, const int& nsize)
 {
     FILE* file = NULL;
     fopen_s(&file, fpath, "w");
@@ -323,46 +302,103 @@ bool save_file(const char* fpath, const char* stream, const int& nsize)
     fclose(file);
 }
 
-//@return :Unkown: -1| ANSI=0 | UTF-8=1 | UTF-16LE=2 | UTF-16BE=3 | UTF-32LE=4 | UTF-32BE=5
-int get_encoding_file(const char* path)
+/***************************************************************************
+* @Brief : free memory of data which use read_data_file                     
+* @Author: thuong.nv - [Date] :09/07/2022                                   
+* @Return: void                                                             
+* @Note  : N/A                                                              
+***************************************************************************/
+void free_data_file(void** data)
 {
-    FILE* file = NULL;
-    fopen_s(&file, path, "r");
+    free(*data);
+    *data = NULL;
+}
 
-    if (!file) return -1;
-    // read byte order mark 
-    unsigned char bytes_mark[4] = { 0x00 };
-    int bytes_mark_size = fread_s(bytes_mark, 4, sizeof(char), 4, file);
+/***************************************************************************
+* @Brief : Read data file -> bytes                                          
+* @Author: thuong.nv  -[Date] :09/07/2022                                   
+* @Return: void*                                                            
+* @Note  : free the data return use  free_data_file function                
+***************************************************************************/
+void* read_data_file(const char* fpath, size_t* nsize)
+{
+    void* buff = NULL; *nsize = 0;
 
-    int encoding = get_encoding_bytes_bom(bytes_mark, bytes_mark_size);
+    FILE *file = _fsopen(fpath, "r", _SH_DENYRD);
+    if (!file) return NULL;
 
     // number of bytes file size 
-    fseek(file, 0, SEEK_END);
-    size_t n_bytes_size = static_cast<size_t>(ftell(file));
-    fseek(file, 0, SEEK_SET);
+    fseek(file, 0L, SEEK_END);
+    *nsize = static_cast<size_t>(ftell(file));
+    fseek(file, 0L, SEEK_SET);
 
     // read content bytes file
-    char* buff = new char[n_bytes_size + 1];
-    memset(buff, '\0', n_bytes_size);
-    int nbytes = fread(buff, 1, n_bytes_size, file);
+    buff = (void*)malloc((*nsize + 1)*sizeof(char));
+    memset(buff, 0, *nsize + 1);
+    *nsize = fread_s(buff, *nsize, 1, *nsize, file);
 
-    if (encoding == 0) // ansi -> utf8 (content unicode)
+    if (nsize == 0) free_data_file(&buff);
+
+    fclose(file);
+    return buff;
+}
+
+/***************************************************************************
+* @Brief : Read n first bytes in file                                       
+* @Author: thuong.nv  -[Date] :09/07/2022                                   
+* @Return: void*                                                            
+* @Note  : free buff data return use  free_data_file function               
+***************************************************************************/
+void* read_nbyte_file(const char* fpath, size_t nbyte, size_t* nbyteread)
+{
+    void *buff = NULL; *nbyteread = 0;
+
+    FILE *file = _fsopen(fpath, "r", _SH_DENYRD);
+    if (!file) return NULL;
+
+    // allocate nbyte data content bytes file
+    buff = (void*)malloc(nbyte * sizeof(char));
+    memset(buff, 0, nbyte);
+    *nbyteread = fread_s(buff, nbyte, 1, nbyte, file);
+
+    if (*nbyteread == 0) free_data_file(&buff);
+
+    fclose(file);
+    return buff;
+}
+
+/***************************************************************************
+* @Brief : Get encoding file                                                
+* @Author: thuong.nv    -[Date] :09/07/2022                                 
+* @Return: Unkown  =-1 | ANSI    =0 | UTF-8   =1 | UTF-16LE=2               
+           UTF-16BE= 3 | UTF-32LE=4 | UTF-32BE=5                            
+* @Note  : free the data return use  free_data_file function                
+***************************************************************************/
+int get_encoding_file(const char* fpath)
+{
+    // Read 4 byte order mark check
+    size_t nbytes_mark = 0;
+    void* bytes_mark = read_nbyte_file(fpath, 4, &nbytes_mark);
+    int encoding = get_encoding_bytes_bom((unsigned char*)bytes_mark, nbytes_mark);
+    free_data_file(&bytes_mark);
+
+    // Special case : Ansi -> Utf8 (contain unicode)
+    if (encoding == 0) 
     {
-        if (is_utf8(buff, nbytes))
+        size_t nbytes = 0;
+        void* data = read_data_file(fpath, &nbytes);
+
+        if (is_utf8((const char*)data, nbytes))
         {
             encoding = 1;
         }
-    }
-    save_file("utf8out.txt", (const char*)buff, nbytes);
 
-    delete[] buff;
-    fclose(file);
+        save_file("utf8out.txt", data, nbytes);
+        free_data_file(&data);
+    }
 
     return encoding;
 }
-
-
-
 
 bool save_file_endcoding(const wchar_t* fpath, const char* stream, const int& n_size, const int& encoding =0)
 {
@@ -481,9 +517,9 @@ int main()
     //save_file_endcoding(L"output.txt", a.c_str(), a.size(), 0);
 
     int ecode1 = get_encoding_file("utf8.txt");
-    //int ecode2 = get_encoding_file("utf8bom.txt");
-    //int ecode3 = get_encoding_file("utf16le.txt");
-    //int ecode4 = get_encoding_file("utf16be.txt");
+    int ecode2 = get_encoding_file("utf8bom.txt");
+    int ecode3 = get_encoding_file("utf16le.txt");
+    int ecode4 = get_encoding_file("utf16be.txt");
 
     int c = 10;
 }

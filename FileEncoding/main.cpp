@@ -10,35 +10,51 @@
 //EF BB BF      UTF-8                   
 //======================================
 
-void utf8_to_utf16(const char* str, const int& n_size, wchar_t*& utf16, int& n_wsize)
-{
-    utf16 = NULL; n_wsize = 0; // reset
-    if (!str) return;
+#define FREE_DATA_BUFF(p) { delete[] p; p = NULL; }
+#define FREE_DATA_FILE(p) { free(p)   ; p = NULL; }
 
-    n_wsize = ::MultiByteToWideChar(CP_UTF8, 0, &str[0], n_size, NULL, 0);
-    utf16 = new wchar_t[n_wsize +1];
-    utf16[n_wsize] = '\0';
-    ::MultiByteToWideChar(CP_UTF8, 0, &str[0], n_size, &utf16[0], n_wsize);
+size_t utf8_to_utf16(const char* str_utf8, const int& nsize, wchar_t** str_utf16)
+{
+    *str_utf16 = NULL; size_t nwsize = 0; // reset
+    if (!str_utf8) return nwsize;
+
+    nwsize = ::MultiByteToWideChar(CP_UTF8, 0, &str_utf8[0], nsize, NULL, 0);
+    if (nwsize <= 0) return nwsize;
+    *str_utf16 = new wchar_t[nwsize + 1];
+    (*str_utf16)[nwsize] = 0;
+    return ::MultiByteToWideChar(CP_UTF8, 0, &str_utf8[0], nsize, *str_utf16, nwsize);
 }
 
-void utf16_to_utf8(const wchar_t* str, const int& n_wsize, char*& utf8, int& n_size)
+size_t acp_to_utf16(const char* str_acp, const int& nsize, wchar_t** str_utf16)
 {
-    utf8 = NULL; n_size = 0; // reset
-    if (!str) return;
+    *str_utf16 = NULL; size_t nwsize = 0; // reset
+    if (!str_acp) return nwsize;
 
-    n_size = ::WideCharToMultiByte(CP_UTF8, 0, &str[0], n_wsize, NULL, 0, NULL, NULL);
-    utf8 = new char[n_size + 1];
-    utf8[n_size] = '\0';
-    ::WideCharToMultiByte(CP_UTF8, 0, &str[0], n_wsize, &utf8[0], n_size, NULL, NULL);
+    nwsize = ::MultiByteToWideChar(CP_ACP, 0, &str_acp[0], nsize, NULL, 0);
+    if (nwsize <= 0) return nwsize;
+    *str_utf16 = new wchar_t[nwsize + 1];
+    (*str_utf16)[nwsize] = 0;
+    return ::MultiByteToWideChar(CP_ACP, 0, &str_acp[0], nsize, *str_utf16, nwsize);
+}
+
+size_t utf16_to_utf8(const wchar_t* str_utf16, const int& nwsize, char** str_utf8)
+{
+    *str_utf8 = NULL; size_t nsize = 0; // reset
+    if (!str_utf16) return nsize;
+
+    nsize = ::WideCharToMultiByte(CP_UTF8, 0, &str_utf16[0], nwsize, NULL, 0, NULL, NULL);
+    *str_utf8 = new char[nsize + 1];
+    (*str_utf8)[nsize] = 0;
+    return ::WideCharToMultiByte(CP_UTF8, 0, &str_utf16[0], nwsize, *str_utf8, nsize, NULL, NULL);
 }
 
 /***************************************************************************
-* @Brief  : Get encoding use bom bytes                                      
-* @Author : thuong.nv   - [Date] :09/07/2022                                
-* @Return : ANSI=0 | UTF-8=1 | UTF-16LE=2 | UTF-16BE=3 | UTF-32LE=4 | UTF-32BE=5
-* @Note   : N/A                                                             
+*! \Brief  : Get encoding use bom bytes                                      
+*! \Author : thuong.nv   - [Date] :09/07/2022                                
+*! \Return : ANSI=0 | UTF-8=1 | UTF-16LE=2 | UTF-16BE=3 | UTF-32LE=4 | UTF-32BE=5
+*! \Note   : N/A                                                             
 ***************************************************************************/
-int get_encoding_bytes_bom(unsigned char* _bytes, const int _size)
+int get_encoding_bytes_bom(unsigned char* _bytes, const int& _size)
 {
     if (!_bytes || !_size) return 0;
 
@@ -302,52 +318,59 @@ bool save_file(const char* fpath, void* stream, const int& nsize)
     fclose(file);
 }
 
-/***************************************************************************
-* @Brief : free memory of data which use read_data_file                     
-* @Author: thuong.nv - [Date] :09/07/2022                                   
-* @Return: void                                                             
-* @Note  : N/A                                                              
-***************************************************************************/
-void free_data_file(void** data)
-{
-    free(*data);
-    *data = NULL;
-}
+
 
 /***************************************************************************
-* @Brief : Read data file -> bytes                                          
-* @Author: thuong.nv  -[Date] :09/07/2022                                   
-* @Return: void*                                                            
-* @Note  : free the data return use  free_data_file function                
+* !\ Brief : Read data file -> bytes                                        
+* !\ Author: thuong.nv  -[Date] :09/07/2022                                 
+* !\ Return: Number of bytes file & buffer & encoding                       
+* !\ ANSI=0| UTF-8=1| UTF-16LE=2| UTF-16BE=3| UTF-32LE=4| UTF-32BE=5
+* !\ Note  : free the data return use  FREE_DATA_FILE function              
 ***************************************************************************/
-void* read_data_file(const char* fpath, size_t* nsize)
+size_t read_data_file(const char* fpath, void** buff, int* encoding)
 {
-    void* buff = NULL; *nsize = 0;
+    if (buff) { *buff = NULL; } size_t nbytes = 0;
 
-    FILE *file = _fsopen(fpath, "r", _SH_DENYRD);
-    if (!file) return NULL;
+    // Open and read file share data
+    FILE *file = _fsopen(fpath, "rb", _SH_DENYRD);
+    if  (!file) return nbytes;
 
-    // number of bytes file size 
+    // Read number of bytes file size 
     fseek(file, 0L, SEEK_END);
-    *nsize = static_cast<size_t>(ftell(file));
+    nbytes = static_cast<size_t>(ftell(file));
     fseek(file, 0L, SEEK_SET);
 
-    // read content bytes file
-    buff = (void*)malloc((*nsize + 1)*sizeof(char));
-    memset(buff, 0, *nsize + 1);
-    *nsize = fread_s(buff, *nsize, 1, *nsize, file);
-
-    if (nsize == 0) free_data_file(&buff);
-
+    auto temp_buff = malloc((nbytes + 1) * sizeof(char));
+    memset(temp_buff, 0, nbytes + 1);
+    nbytes = fread_s(temp_buff, nbytes, 2, nbytes, file);
     fclose(file);
-    return buff;
+
+    // Read content bytes file + nbyte read
+    if (buff) { *buff = temp_buff; };
+
+    // Read nbyte order mark : 4 byte
+    if (encoding)
+    {
+        size_t min_byte = (nbytes < 4) ? nbytes : 4;
+        *encoding = get_encoding_bytes_bom((PUCHAR)temp_buff, min_byte);
+
+        // Special case : Ansi -> Utf8 (contain unicode)
+        if (*encoding == 0 && is_utf8((const char*)(temp_buff), nbytes))
+        {
+            *encoding = 1;
+        }
+    }
+    // check expection (not bytes, buff zero)
+    if (nbytes == 0 && buff) { free(*buff); *buff = NULL;};
+
+    return nbytes;
 }
 
 /***************************************************************************
 * @Brief : Read n first bytes in file                                       
 * @Author: thuong.nv  -[Date] :09/07/2022                                   
 * @Return: void*                                                            
-* @Note  : free buff data return use  free_data_file function               
+* @Note  : free buff data return use  FREE_DATA_FILE function               
 ***************************************************************************/
 void* read_nbyte_file(const char* fpath, size_t nbyte, size_t* nbyteread)
 {
@@ -361,7 +384,7 @@ void* read_nbyte_file(const char* fpath, size_t nbyte, size_t* nbyteread)
     memset(buff, 0, nbyte);
     *nbyteread = fread_s(buff, nbyte, 1, nbyte, file);
 
-    if (*nbyteread == 0) free_data_file(&buff);
+    if (*nbyteread == 0) FREE_DATA_FILE(buff);
 
     fclose(file);
     return buff;
@@ -376,28 +399,29 @@ void* read_nbyte_file(const char* fpath, size_t nbyte, size_t* nbyteread)
 ***************************************************************************/
 int get_encoding_file(const char* fpath)
 {
-    // Read 4 byte order mark check
-    size_t nbytes_mark = 0;
-    void* bytes_mark = read_nbyte_file(fpath, 4, &nbytes_mark);
-    int encoding = get_encoding_bytes_bom((unsigned char*)bytes_mark, nbytes_mark);
-    free_data_file(&bytes_mark);
+    //// Read 4 byte order mark check
+    //size_t nbytes_mark = 0;
+    //void* bytes_mark = read_nbyte_file(fpath, 4, &nbytes_mark);
+    //int encoding = get_encoding_bytes_bom((unsigned char*)bytes_mark, nbytes_mark);
+    //FREE_DATA_FILE(bytes_mark);
 
-    // Special case : Ansi -> Utf8 (contain unicode)
-    if (encoding == 0) 
-    {
-        size_t nbytes = 0;
-        void* data = read_data_file(fpath, &nbytes);
+    //// Special case : Ansi -> Utf8 (contain unicode)
+    //if (encoding == 0) 
+    //{
+    //    size_t nbytes = 0;
+    //    void* data = read_data_file(fpath, &nbytes);
 
-        if (is_utf8((const char*)data, nbytes))
-        {
-            encoding = 1;
-        }
+    //    if (is_utf8((const char*)data, nbytes))
+    //    {
+    //        encoding = 1;
+    //    }
 
-        save_file("utf8out.txt", data, nbytes);
-        free_data_file(&data);
-    }
+    //    save_file("utf8out.txt", data, nbytes);
+    //    FREE_DATA_BUFF(data);
+    //}
 
-    return encoding;
+    //return encoding;
+    return 1;
 }
 
 bool save_file_endcoding(const wchar_t* fpath, const char* stream, const int& n_size, const int& encoding =0)
@@ -516,11 +540,24 @@ int main()
     //save_file_endcoding(L"output.txt", a, _size, 2);
     //save_file_endcoding(L"output.txt", a.c_str(), a.size(), 0);
 
-    int ecode1 = get_encoding_file("utf8.txt");
-    int ecode2 = get_encoding_file("utf8bom.txt");
-    int ecode3 = get_encoding_file("utf16le.txt");
-    int ecode4 = get_encoding_file("utf16be.txt");
+    //int ecode1 = get_encoding_file("utf8.txt");
+    //int ecode2 = get_encoding_file("utf8bom.txt");
+    //int ecode3 = get_encoding_file("utf16le.txt");
+    //int ecode4 = get_encoding_file("utf16be.txt");
 
-    int c = 10;
+    size_t bytes_size = 0;
+    void* temp  = NULL; int encoding = 0;
+    bytes_size = read_data_file("utf16le.txt", &temp, &encoding);
+    wchar_t* buff_data = static_cast<wchar_t*>(temp);
+    buff_data[bytes_size - 4] = 0;
+    wchar_t* utf = NULL;
+
+    //auto a = acp_to_utf16(buff_data, bytes_size, &utf);
+    //auto a = utf16_to_utf8(buff_data, bytes_size, &utf16);
+    //
+    //wchar_t* utf = NULL;
+    //auto b = utf8_to_utf16(utf16, a, &utf);
+
+    FREE_DATA_FILE(buff_data);
 }
 

@@ -27,11 +27,37 @@ int get_system_endian()
     return (*(char *)&n == 1) ? 0 : 1;
 }
 
-void swap_endian_16(wchar_t* ch)
+void reverse_byte_16(wchar_t* ch)
 {
-    *ch = ((*ch) >> 8) | (((*ch) & 0xFF) << 8);
+    *ch= ((*ch << 8) | (*ch >> 8));
 }
 
+wchar_t reverse_byte_16x(wchar_t* ch)
+{
+    return (*ch >> 8) | (*ch << 8);
+}
+
+/***************************************************************************
+* @Brief : Convert from little to big endian and vice versa                 
+* @Author: thuong.nv - [Date] :09/07/2022                                   
+* @Param :                                                                  
+*         [in]  str   : wchar_t string                                      
+*         [in]  nsize : n charactor not bytes                               
+*         [out] str_rev : buffer reverse charactor                          
+* @Return: int : byte wchar_t                                               
+***************************************************************************/
+int reverse_endian(wchar_t* str, const int& nsize, wchar_t** str_rev)
+{
+    wchar_t* str_rev_trmp = new wchar_t[nsize + 2];
+    memset(str_rev_trmp, 0, nsize + 2);
+    for (int i = 0; i < nsize; i++)
+    {
+        str_rev_trmp[i] = reverse_byte_16x(&str[i]);
+    }
+    *str_rev = str_rev_trmp;
+
+    return nsize;
+}
 
 /***************************************************************************
 * @Brief : Convert from little to big endian and vice versa                 
@@ -45,7 +71,7 @@ void reverse_endian(wchar_t* str, const int& nsize)
 {
     for (int i = 0; i < nsize; i++)
     {
-        swap_endian_16(&(str)[i]);
+        reverse_byte_16(&(str)[i]);
     }
 }
 
@@ -295,7 +321,7 @@ int read_data_file(const char* fpath, void** buff, int* encoding)
     // when encoding is utf16be and system endian is le then convert buff data
     if (*encoding == 3 && nbytes > 0 && get_system_endian() == 0)
     {
-        reverse_endian((wchar_t*)*buff, nbytes / 2);
+        reverse_endian((wchar_t*)*buff, nbytes / sizeof(wchar_t));
     }
 
     return nbytes;
@@ -325,14 +351,19 @@ void* read_nbyte_file(const char* fpath, size_t nbyte, size_t* nbyteread)
     return buff;
 }
 
-bool save_file_endcoding(const wchar_t* fpath, const char* stream, const int& n_size, const int& encoding =0)
+/***************************************************************************
+* !\ Brief : Save data file -> bytes                                        
+* !\ Author: thuong.nv  -[Date] :09/07/2022                                 
+* !\ Return: Number of bytes file & buffer & encoding                       
+* !\ ANSI=0| UTF-8=1| UTF-16LE=2| UTF-16BE=3| UTF-32LE=4| UTF-32BE=5        
+* !\ Note  : free the data return use  FREE_DATA_FILE function              
+***************************************************************************/
+bool save_file_endcoding(const wchar_t* fpath, char* stream, const int& n_size, const int& encoding =0)
 {
     FILE* file = NULL;
     _wfopen_s(&file, fpath, L"w");
 
     if (!file) return false;
-
-
 
     //======================================
     //00 00 FE FF   UTF-32, big-endian      
@@ -346,30 +377,65 @@ bool save_file_endcoding(const wchar_t* fpath, const char* stream, const int& n_
     unsigned char bytes_mark_utf8   [] = {0xEF, 0xBB, 0xBF      };
     unsigned char bytes_mark_utf16le[] = {0xFF, 0xFE            };
     unsigned char bytes_mark_utf16be[] = {0xFE, 0xFF,           };
+    
+    unsigned char* bytes_mark = NULL;
+    int nbyte_mark = 0;
 
-    if (encode == 0) // UTF-8
+    if (encode == 1)
     {
-        //memcpy_s(file, 3, bytes_mark_utf8, 3);
-        for (size_t i = 0; i < sizeof(bytes_mark_utf8) / sizeof(bytes_mark_utf8[0]); i++)
-            fputc(bytes_mark_utf8[i], file);
-        fputs(stream, file);
-        //memcpy_s(file + 3, n_size, stream, n_size);
-    }
-    else if (encode == 1) //UTF-16, little-endian
-    {
-        for (size_t i = 0; i < sizeof(bytes_mark_utf16le) / sizeof(bytes_mark_utf16le[0]); i++)
-            fputc(bytes_mark_utf16le[i], file);
-        fputs(stream, file);
-        //memcpy_s(file + 2, n_size, stream, n_size);
+        bytes_mark = bytes_mark_utf8;
+        nbyte_mark = sizeof(bytes_mark_utf8) / sizeof(bytes_mark_utf8[0]);
     }
     else if (encode == 2)
     {
-        for (size_t i = 0; i < sizeof(bytes_mark_utf16be) / sizeof(bytes_mark_utf16be[0]); i++)
-            fputc(bytes_mark_utf16be[i], file);
-        fputs(stream, file);
-        //memcpy_s(file, 2, bytes_mark_utf16be, 2);
-        //memcpy_s(file + 2, n_size, stream, n_size);
+        bytes_mark = bytes_mark_utf16le;
+        nbyte_mark = sizeof(bytes_mark_utf16le) / sizeof(bytes_mark_utf16le[0]);
     }
+    else if (encode == 3)
+    {
+        bytes_mark = bytes_mark_utf16be;
+        nbyte_mark = sizeof(bytes_mark_utf16be) / sizeof(bytes_mark_utf16be[0]);
+    }
+
+    // Push mark order byte
+    for (int i = 0; i < nbyte_mark; i++)
+    {
+        fputc(bytes_mark[i], file);
+    }
+
+    fseek(file, nbyte_mark, SEEK_SET);
+
+    const int little_endian = 0;
+    const int big_endian    = 1;
+
+    int sys_endian = get_system_endian();
+
+    // -1 : byte to byte | 0 : little endian | 1 : big endian
+    // 0 = utf16le and 1 = utf16be
+    int stream_endian = (encode == 2) ? little_endian
+                        : (encode == 3) ? big_endian : -1;
+
+    wchar_t* temp_stream = NULL;
+
+    if (stream_endian != -1 && sys_endian != stream_endian)
+    {
+        // when system is little endian -> out file big endian
+        if (encode == 3)
+        {
+            // reverse_endian((wchar_t*)stream, n_size/sizeof(wchar_t)); //-> error
+            // [fix] : not used reverse_endian directly char*
+            // The cause : stream is const char not reverse not allocated memory
+
+            reverse_endian((wchar_t*)stream, n_size/sizeof(wchar_t), &temp_stream);
+            stream = (char*)temp_stream;
+        }
+    }
+
+    // Push stream data
+    fwrite(stream, sizeof(char), n_size, file);
+
+    delete[] temp_stream; // no problem
+
     fclose(file);
 
     return true;
@@ -388,6 +454,11 @@ bool SaveFileStream(const char* fpath, const int& encoding)
     return true;
 }
 
+
+wchar_t test(wchar_t ch)
+{
+    return (ch >> 8) | (ch << 8);
+}
 
 int main()
 {
@@ -412,17 +483,39 @@ int main()
     //int ecode3 = get_encoding_file("utf16le.txt");
     //int ecode4 = get_encoding_file("utf16be.txt");
 
+    // ================================= Read file ===================================//
     size_t bytes_size = 0;
     void* temp  = NULL; int encoding = 0;
-    bytes_size = read_data_file("utf16be.txt", &temp, &encoding);
-    wchar_t* buff_data = static_cast<wchar_t*>(temp);
+    bytes_size = read_data_file("utf8.txt", &temp, &encoding);
 
-    //auto a = acp_to_utf16(buff_data, bytes_size, &utf);
-    //auto a = utf16_to_utf8(buff_data, bytes_size, &utf16);
-    //
+    // Read UTF-8
+    //char* buff_data = static_cast<char*>(temp);
     //wchar_t* utf = NULL;
-    //auto b = utf8_to_utf16(buff_data, bytes_size, &utf);
+    //auto n = utf8_to_utf16(buff_data, bytes_size, &utf);
 
-    FREE_DATA_FILE(buff_data);
+    // Read UTF-16-LE
+    //wchar_t* buff_data = static_cast<wchar_t*>(temp);
+
+    // Read UTF-16-BE
+    //wchar_t* buff_data = static_cast<wchar_t*>(temp);
+
+    // ================================= Save file ===================================//
+    wchar_t* utf16 = L"Đây là file UTF8";
+
+    //char* acp = "Đây là file UTF8";
+
+    // Save UTF-8
+    //char* temp = NULL;
+    //int n = utf16_to_utf8(utf16, wcslen(utf16), &temp);
+    //save_file_endcoding(L"utf8out.txt", (char*)utf16, wcslen(utf16), 2);
+    //save_file_endcoding(L"utf8nouni.txt", acp, strlen(acp), 0);
+
+    // Save UTF-16LE
+    //save_file_endcoding(L"utf16leout.txt", (char*)utf16, wcslen(utf16)* sizeof(wchar_t), 2);
+
+    // Save UTF-16BE
+    //save_file_endcoding(L"utf16beout.txt", (char*)utf16, wcslen(utf16) * sizeof(wchar_t), 3);
+
+    return 0;
 }
 

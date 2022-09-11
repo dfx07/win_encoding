@@ -13,39 +13,79 @@
 #define FREE_DATA_BUFF(p) { delete[] p; p = NULL; }
 #define FREE_DATA_FILE(p) { free(p)   ; p = NULL; }
 
-size_t utf8_to_utf16(const char* str_utf8, const int& nsize, wchar_t** str_utf16)
+
+/***************************************************************************
+* @Brief : Check system endian is using                                     
+* @Author: thuong.nv - [Date] :09/07/2022                                   
+* @Param : void                                                             
+* @Return: 0 =little endian | 1 =big endian                                 
+***************************************************************************/
+int get_system_endian()
 {
-    *str_utf16 = NULL; size_t nwsize = 0; // reset
+    // little endian if true
+    int n = 1;
+    return (*(char *)&n == 1) ? 0 : 1;
+}
+
+void swap_endian_16(wchar_t* ch)
+{
+    *ch = ((*ch) >> 8) | (((*ch) & 0xFF) << 8);
+}
+
+
+/***************************************************************************
+* @Brief : Convert from little to big endian and vice versa                 
+* @Author: thuong.nv - [Date] :09/07/2022                                   
+* @Param :                                                                  
+*         [in] str   : wchar_t string                                       
+*         [in] nsize : n charactor not bytes                                
+* @Return: void                                                             
+***************************************************************************/
+void reverse_endian(wchar_t* str, const int& nsize)
+{
+    for (int i = 0; i < nsize; i++)
+    {
+        swap_endian_16(&(str)[i]);
+    }
+}
+
+int utf8_to_utf16(const char* str_utf8, const int& nsize, wchar_t** str_utf16)
+{
+    *str_utf16 = NULL; int nwsize = 0; // reset
     if (!str_utf8) return nwsize;
 
     nwsize = ::MultiByteToWideChar(CP_UTF8, 0, &str_utf8[0], nsize, NULL, 0);
     if (nwsize <= 0) return nwsize;
     *str_utf16 = new wchar_t[nwsize + 1];
     (*str_utf16)[nwsize] = 0;
+
     return ::MultiByteToWideChar(CP_UTF8, 0, &str_utf8[0], nsize, *str_utf16, nwsize);
 }
 
-size_t acp_to_utf16(const char* str_acp, const int& nsize, wchar_t** str_utf16)
+int utf16_to_utf8(const wchar_t* str_utf16, const int& nwsize, char** str_utf8)
 {
-    *str_utf16 = NULL; size_t nwsize = 0; // reset
+    *str_utf8 = NULL; int nsize = 0; // reset
+    if (!str_utf16) return nsize;
+
+    nsize = ::WideCharToMultiByte(CP_UTF8, 0, &str_utf16[0], nwsize, NULL, 0, NULL, NULL);
+    if (nsize <= 0) return nsize;
+    *str_utf8 = new char[nsize + 1];
+    (*str_utf8)[nsize] = 0;
+
+    return ::WideCharToMultiByte(CP_UTF8, 0, &str_utf16[0], nwsize, *str_utf8, nsize, NULL, NULL);
+}
+
+int acp_to_utf16(const char* str_acp, const int& nsize, wchar_t** str_utf16)
+{
+    *str_utf16 = NULL; int nwsize = 0; // reset
     if (!str_acp) return nwsize;
 
     nwsize = ::MultiByteToWideChar(CP_ACP, 0, &str_acp[0], nsize, NULL, 0);
     if (nwsize <= 0) return nwsize;
     *str_utf16 = new wchar_t[nwsize + 1];
     (*str_utf16)[nwsize] = 0;
+
     return ::MultiByteToWideChar(CP_ACP, 0, &str_acp[0], nsize, *str_utf16, nwsize);
-}
-
-size_t utf16_to_utf8(const wchar_t* str_utf16, const int& nwsize, char** str_utf8)
-{
-    *str_utf8 = NULL; size_t nsize = 0; // reset
-    if (!str_utf16) return nsize;
-
-    nsize = ::WideCharToMultiByte(CP_UTF8, 0, &str_utf16[0], nwsize, NULL, 0, NULL, NULL);
-    *str_utf8 = new char[nsize + 1];
-    (*str_utf8)[nsize] = 0;
-    return ::WideCharToMultiByte(CP_UTF8, 0, &str_utf16[0], nwsize, *str_utf8, nsize, NULL, NULL);
 }
 
 /***************************************************************************
@@ -95,121 +135,6 @@ int get_encoding_bytes_bom(unsigned char* _bytes, const int& _size)
     }
 
     return 0; // ansi
-}
-
-int xmlCheckUTF8(const unsigned char *utf)
-{
-    int ix;
-    unsigned char c;
-
-    for (ix = 0; (c = utf[ix]);) {
-        if (c & 0x80) {
-            if ((utf[ix + 1] & 0xc0) != 0x80)
-                return(0);
-            if ((c & 0xe0) == 0xe0) {
-                if ((utf[ix + 2] & 0xc0) != 0x80)
-                    return(0);
-                if ((c & 0xf0) == 0xf0) {
-                    if ((c & 0xf8) != 0xf0 || (utf[ix + 3] & 0xc0) != 0x80)
-                        return(0);
-                    ix += 4;
-                    /* 4-byte code */
-                }
-                else
-                    /* 3-byte code */
-                    ix += 3;
-            }
-            else
-                /* 2-byte code */
-                ix += 2;
-        }
-        else
-            /* 1-byte code */
-            ix++;
-    }
-    return(1);
-}
-
-bool utf8_check_is_valid(const char* string, const int& nsize)
-{
-    int c, i, ix, n, j;
-    for (i = 0, ix = nsize; i < ix; i++)
-    {
-        c = (unsigned char)string[i];
-        //if (c==0x09 || c==0x0a || c==0x0d || (0x20 <= c && c <= 0x7e) ) n = 0; // is_printable_ascii
-        if (0x00 <= c && c <= 0x7f) n = 0; // 0bbbbbbb
-        else if ((c & 0xE0) == 0xC0) n = 1; // 110bbbbb
-        else if (c == 0xed && i<(ix - 1) && ((unsigned char)string[i + 1] & 0xa0) == 0xa0) return false; //U+d800 to U+dfff
-        else if ((c & 0xF0) == 0xE0) n = 2; // 1110bbbb
-        else if ((c & 0xF8) == 0xF0) n = 3; // 11110bbb
-                                            //else if (($c & 0xFC) == 0xF8) n=4; // 111110bb //byte 5, unnecessary in 4 byte UTF-8
-                                            //else if (($c & 0xFE) == 0xFC) n=5; // 1111110b //byte 6, unnecessary in 4 byte UTF-8
-        else return false;
-        for (j = 0; j<n && i<ix; j++) { // n bytes matching 10bbbbbb follow ?
-            if ((++i == ix) || (((unsigned char)string[i] & 0xC0) != 0x80))
-                return false;
-        }
-    }
-    return true;
-}
-
-bool is_utf8(const char* string)
-{
-    if (!string)
-        return true;
-
-    const unsigned char * bytes = (const unsigned char *)string;
-    unsigned int cp;
-    int num;
-
-    while (*bytes != 0x00)
-    {
-        if ((*bytes & 0x80) == 0x00)
-        {
-            // U+0000 to U+007F 
-            cp = (*bytes & 0x7F);
-            num = 1;
-        }
-        else if ((*bytes & 0xE0) == 0xC0)
-        {
-            // U+0080 to U+07FF 
-            cp = (*bytes & 0x1F);
-            num = 2;
-        }
-        else if ((*bytes & 0xF0) == 0xE0)
-        {
-            // U+0800 to U+FFFF 
-            cp = (*bytes & 0x0F);
-            num = 3;
-        }
-        else if ((*bytes & 0xF8) == 0xF0)
-        {
-            // U+10000 to U+10FFFF 
-            cp = (*bytes & 0x07);
-            num = 4;
-        }
-        else
-            return false;
-
-        bytes += 1;
-        for (int i = 1; i < num; ++i)
-        {
-            if ((*bytes & 0xC0) != 0x80)
-                return false;
-            cp = (cp << 6) | (*bytes & 0x3F);
-            bytes += 1;
-        }
-
-        if ((cp > 0x10FFFF) ||
-            ((cp >= 0xD800) && (cp <= 0xDFFF)) ||
-            ((cp <= 0x007F) && (num != 1)) ||
-            ((cp >= 0x0080) && (cp <= 0x07FF) && (num != 2)) ||
-            ((cp >= 0x0800) && (cp <= 0xFFFF) && (num != 3)) ||
-            ((cp >= 0x10000) && (cp <= 0x1FFFFF) && (num != 4)))
-            return false;
-    }
-
-    return true;
 }
 
 /***************************************************************************
@@ -316,20 +241,21 @@ bool save_file(const char* fpath, void* stream, const int& nsize)
     fwrite(stream, nsize, sizeof(char), file);
 
     fclose(file);
-}
 
+    return true;
+}
 
 
 /***************************************************************************
 * !\ Brief : Read data file -> bytes                                        
 * !\ Author: thuong.nv  -[Date] :09/07/2022                                 
 * !\ Return: Number of bytes file & buffer & encoding                       
-* !\ ANSI=0| UTF-8=1| UTF-16LE=2| UTF-16BE=3| UTF-32LE=4| UTF-32BE=5
+* !\ ANSI=0| UTF-8=1| UTF-16LE=2| UTF-16BE=3| UTF-32LE=4| UTF-32BE=5        
 * !\ Note  : free the data return use  FREE_DATA_FILE function              
 ***************************************************************************/
-size_t read_data_file(const char* fpath, void** buff, int* encoding)
+int read_data_file(const char* fpath, void** buff, int* encoding)
 {
-    if (buff) { *buff = NULL; } size_t nbytes = 0;
+    if (buff) { *buff = NULL; } int nbytes = 0;
 
     // Open and read file share data
     FILE *file = _fsopen(fpath, "rb", _SH_DENYRD);
@@ -337,12 +263,14 @@ size_t read_data_file(const char* fpath, void** buff, int* encoding)
 
     // Read number of bytes file size 
     fseek(file, 0L, SEEK_END);
-    nbytes = static_cast<size_t>(ftell(file));
+    nbytes = static_cast<int>(ftell(file));
     fseek(file, 0L, SEEK_SET);
 
-    auto temp_buff = malloc((nbytes + 1) * sizeof(char));
-    memset(temp_buff, 0, nbytes + 1);
-    nbytes = fread_s(temp_buff, nbytes, 2, nbytes, file);
+    // when encoding is utf16 then nstring(wchar_t) = nbtyes/2
+    // So, I allocate extra 2 byte to break the buff data
+    auto temp_buff = malloc((nbytes + 2)* sizeof(char));
+    memset(temp_buff, 0, nbytes + 2);
+    nbytes = (int)fread_s(temp_buff, nbytes, 1, nbytes, file);
     fclose(file);
 
     // Read content bytes file + nbyte read
@@ -351,7 +279,7 @@ size_t read_data_file(const char* fpath, void** buff, int* encoding)
     // Read nbyte order mark : 4 byte
     if (encoding)
     {
-        size_t min_byte = (nbytes < 4) ? nbytes : 4;
+        int min_byte = (nbytes < 4) ? nbytes : 4;
         *encoding = get_encoding_bytes_bom((PUCHAR)temp_buff, min_byte);
 
         // Special case : Ansi -> Utf8 (contain unicode)
@@ -360,8 +288,15 @@ size_t read_data_file(const char* fpath, void** buff, int* encoding)
             *encoding = 1;
         }
     }
+
     // check expection (not bytes, buff zero)
     if (nbytes == 0 && buff) { free(*buff); *buff = NULL;};
+
+    // when encoding is utf16be and system endian is le then convert buff data
+    if (*encoding == 3 && nbytes > 0 && get_system_endian() == 0)
+    {
+        reverse_endian((wchar_t*)*buff, nbytes / 2);
+    }
 
     return nbytes;
 }
@@ -388,40 +323,6 @@ void* read_nbyte_file(const char* fpath, size_t nbyte, size_t* nbyteread)
 
     fclose(file);
     return buff;
-}
-
-/***************************************************************************
-* @Brief : Get encoding file                                                
-* @Author: thuong.nv    -[Date] :09/07/2022                                 
-* @Return: Unkown  =-1 | ANSI    =0 | UTF-8   =1 | UTF-16LE=2               
-           UTF-16BE= 3 | UTF-32LE=4 | UTF-32BE=5                            
-* @Note  : free the data return use  free_data_file function                
-***************************************************************************/
-int get_encoding_file(const char* fpath)
-{
-    //// Read 4 byte order mark check
-    //size_t nbytes_mark = 0;
-    //void* bytes_mark = read_nbyte_file(fpath, 4, &nbytes_mark);
-    //int encoding = get_encoding_bytes_bom((unsigned char*)bytes_mark, nbytes_mark);
-    //FREE_DATA_FILE(bytes_mark);
-
-    //// Special case : Ansi -> Utf8 (contain unicode)
-    //if (encoding == 0) 
-    //{
-    //    size_t nbytes = 0;
-    //    void* data = read_data_file(fpath, &nbytes);
-
-    //    if (is_utf8((const char*)data, nbytes))
-    //    {
-    //        encoding = 1;
-    //    }
-
-    //    save_file("utf8out.txt", data, nbytes);
-    //    FREE_DATA_BUFF(data);
-    //}
-
-    //return encoding;
-    return 1;
 }
 
 bool save_file_endcoding(const wchar_t* fpath, const char* stream, const int& n_size, const int& encoding =0)
@@ -470,42 +371,8 @@ bool save_file_endcoding(const wchar_t* fpath, const char* stream, const int& n_
         //memcpy_s(file + 2, n_size, stream, n_size);
     }
     fclose(file);
-}
-
-
-bool utf8_to_jis(const char* string)
-{
 
     return true;
-}
-
-
-
-char* ReadFileStream(const char* fpath, int& encoding)
-{
-    FILE* file;
-    file = fopen(fpath, "r");
-
-    char* buff = NULL;
-
-    if (file)
-    {
-        fseek(file, 0L, SEEK_END);
-        int f_nsize = ftell(file);
-
-        buff = new char[f_nsize + 1];
-        memset(buff, '\0', f_nsize + 1);
-
-        fseek(file, 0L, SEEK_SET);
-
-        fread(buff, sizeof(char), f_nsize, file);
-
-        encoding = is_utf8(buff);
-
-        fclose(file);
-    }
-
-    return buff;
 }
 
 bool SaveFileStream(const char* fpath, const int& encoding)
@@ -547,16 +414,14 @@ int main()
 
     size_t bytes_size = 0;
     void* temp  = NULL; int encoding = 0;
-    bytes_size = read_data_file("utf16le.txt", &temp, &encoding);
+    bytes_size = read_data_file("utf16be.txt", &temp, &encoding);
     wchar_t* buff_data = static_cast<wchar_t*>(temp);
-    buff_data[bytes_size - 4] = 0;
-    wchar_t* utf = NULL;
 
     //auto a = acp_to_utf16(buff_data, bytes_size, &utf);
     //auto a = utf16_to_utf8(buff_data, bytes_size, &utf16);
     //
     //wchar_t* utf = NULL;
-    //auto b = utf8_to_utf16(utf16, a, &utf);
+    //auto b = utf8_to_utf16(buff_data, bytes_size, &utf);
 
     FREE_DATA_FILE(buff_data);
 }
